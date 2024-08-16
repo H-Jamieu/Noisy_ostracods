@@ -1,0 +1,28 @@
+2024/5/15 22:57:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: 'cache'
+----------------------------------------
+2024/5/15 23:0:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: 'CustomImageDataset' object has no attribute 'set_use_cache'
+----------------------------------------
+2024/5/15 23:2:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: can't convert cuda:0 device type tensor to numpy. Use Tensor.cpu() to copy the tensor to host memory first.
+----------------------------------------
+2024/5/15 23:11:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: too many indices for tensor of dimension 0
+----------------------------------------
+2024/5/15 23:15:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: too many indices for tensor of dimension 0
+----------------------------------------
+2024/5/15 23:17:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: too many indices for tensor of dimension 0
+----------------------------------------
+2024/5/15 23:17:
+Error: Training efficient_v2_l with 300 epochs for ostracods_genus_final failed.
+Expectation: too many indices for tensor of dimension 0
+----------------------------------------

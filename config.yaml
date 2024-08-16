@@ -1,0 +1,26 @@
+base_path: /mnt/x # your data path
+class_img_path: the_noisy_ostracods # your noisy ostracods data path
+base_learning_rate: 0.00005 # learning rate = base_learning_rate * batch_size
+batch_size: 256 #  batch size
+epochs: 300 # number of epochs
+model: resnet_50 # model name
+co_model: vit_l_16 # co-teaching model name
+target: ostracods_genus_trans # target label file
+classes: 52 # number of classes, fill 79 for genus, 139 for species
+weight: DEFAULT # pretrained weight from torchvision
+criterion: CrossEntropyLoss # loss function
+optimizer: SGD # optimizer
+momentum: 0.9 # momentum
+scheduler: steplr # learning rate scheduler
+step_size: 7 # step size for learning rate scheduler
+gamma: 0.1 # gamma for learning rate scheduler
+workers: 16 # number of workers for data loader 
+device: '0' # GPU device
+FP16: 'True' # mixed precision, any texte except 'True' will disable mixed precision
+seed: 2024 # random seed, not used.
+imgsz: 224 # image size
+lambd: 0.1 # lambda for optimizer
+forget_rate: 0.05 # forget rate for co-teaching, co-teaching plus, mentor
+save_folder: ./ckpt # checkpoint folder
+val: F # validation, T for validation, F for no validation
+task: 'transition_matrix' # co_teaching, co_teaching_plus, mentor, vanilla, transition_matrix
