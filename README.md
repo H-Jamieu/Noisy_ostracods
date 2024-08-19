@@ -1,8 +1,11 @@
 # Noisy_ostracods
-The repositiary for cleanning the Noisy ostracods dataset. The noisy ostracods dataset contains 138 species from 78 genus. However the noise in the dataset is far more challenge than expected.
-1. Noise type is divergent. All noise types from the litatures occured in the dataset: class-independent, instance-dependent, annotator specific and more...
-2. Openset noise. Some of the noise comes from the ostracods is not from any known species/genus.
-3. Pseudo classes: Some classes are 
+ The officical implementation of collected methods in the Noisy Ostracods dataset. We are now refactoring the code to make it easier to use. Here is queue of works:
+
+ 1. Implement Dynamic Loss for Robust Learning (Jiang et al., 2023) which desigened specifically for unbalanced Label Noise Learning.
+ 2. Integrating Dividemix, SDN and PLM into out trainer->train_engine structure. However, all mthdods included subseting the dataset during train time, a seprate engine will be developed.
+ 3. Implement a unifed calling interface for both robust training and label correction methods.
+ 4. Write documentations.
+ 
 # Downloads
 To be released
 
