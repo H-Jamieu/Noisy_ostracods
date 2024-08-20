@@ -3,6 +3,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 import gc
+from collections import deque
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -710,15 +711,13 @@ def train_model_SAM(model, criterion, optimizer, scheduler, num_epochs, dataload
                             loss.backward()
                         
                         # Compute ε(w)
-                        # get current datatype of the output
-                        d_type = outputs.dtype
                         with torch.no_grad():
                             grad_w = [p.grad.data for p in model.parameters() if p.grad is not None]
                             grad_norm = torch.norm(
                                 torch.stack([torch.norm(g.detach(), dtype=torch.float32) for g in grad_w]),
                                 dtype=torch.float32
                             )
-                            scale = (rho / (grad_norm + 1e-5)).to(dtype=d_type)
+                            scale = (rho / (grad_norm + 1e-5)).to(dtype=torch.float16)
                         
                         # Perturb the model
                         with torch.no_grad():
@@ -855,3 +854,117 @@ def train_model_AUM(model, criterion, optimizer, scheduler, num_epochs, dataload
     
     model_save_path = str(int(since)) + '_' + '{:4f}'.format(best_acc)
     return model, model_save_path, aum_calculator
+
+def get_predictions(model, dataloader, device):
+    model.eval()
+    predictions = torch.tensor(()).to(device)
+    with torch.no_grad():
+        with torch.cuda.amp.autocast(dtype=torch.float16):
+            for inputs, labels, idx in dataloader:
+                inputs = inputs.to(device)
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                predictions = torch.cat((predictions, preds))
+    return predictions
+
+def calculate_pc(prev_predictions, current_predictions):
+    comparsion_1 = prev_predictions == current_predictions
+    pc = 1-torch.sum(comparsion_1).item() / len(prev_predictions)
+    return pc
+
+def train_model_LW(model, criterion, optimizer, scheduler, num_epochs, dataloaders, dataset_sizes, device, add_loader, scaler=None,
+                effective_phase=['train', 'val']):
+    since = time.time()
+    best_acc = 0
+    best_model = None
+    
+    # Label Wave parameters
+    k = 3  # Moving average window
+    pc_history = deque(maxlen=k)
+    previous_predictions = None
+    best_pc = float('inf')
+    patience = 5
+    patience_counter = 0
+    
+    for epoch in range(1, num_epochs + 1):
+        print('Epoch {}/{}'.format(epoch, num_epochs))
+        print('-' * 10)
+        
+        for phase in effective_phase:
+            if phase == 'train':
+                model.train()
+            else:
+                model.eval()
+
+            running_loss = 0.0
+            running_acc1 = 0.0
+            running_acc5 = 0.0
+
+            for inputs, labels, _ in tqdm(dataloaders[phase]):
+                with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+                    optimizer.zero_grad()
+
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(inputs)
+                        loss = criterion(outputs, labels)
+
+                        if phase == 'train':
+                            if scaler is not None:
+                                scaler.scale(loss).backward()
+                                scaler.step(optimizer)
+                                scaler.update()
+                            else:
+                                loss.backward()
+                                optimizer.step()
+
+                _, preds = torch.max(outputs, 1)
+                running_loss += loss.item() * inputs.size(0)
+                acc1, acc5 = accuracy(outputs, labels, topk=(1, 5))
+                running_acc1 += acc1.item()
+                running_acc5 += acc5.item()
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_acc1 / dataset_sizes[phase]
+            epoch_acc5 = running_acc5 / dataset_sizes[phase]
+
+            print('{} Loss: {:.4f} Acc top 1: {:.4f} Acc top 5: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc, epoch_acc5))
+
+            if phase == 'train':
+                scheduler.step()
+        
+        # Label Wave: Get predictions on the whole dataset
+        current_predictions = get_predictions(model, add_loader, device)
+        
+        if previous_predictions is not None:
+            pc = calculate_pc(previous_predictions, current_predictions)
+            pc_history.append(pc)
+            print(f"Prediction Changes: {pc}")
+            
+            if len(pc_history) == k:
+                pc_avg = np.mean(pc_history)
+                print(f"Moving Average PC: {pc_avg}")
+                
+                if pc_avg < best_pc:
+                    best_pc = pc_avg
+                    best_model = model.state_dict()
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                
+                if patience_counter >= patience:
+                    print("Early stopping")
+                    model.load_state_dict(best_model)
+                    return model, str(int(since)) + '_' + '{:4f}'.format(best_acc)
+        
+        previous_predictions = current_predictions
+        
+        # Save model periodically
+        if epoch % 10 == 0 or epoch % 40 == 0:
+            model_save_path = str(int(since)) + '_' + f'epoch_{epoch}'
+            torch.save(model.state_dict(), model_save_path)
+
+    model_save_path = str(int(since)) + '_' + '{:4f}'.format(best_acc)
+    return model, model_save_path

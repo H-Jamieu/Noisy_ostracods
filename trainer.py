@@ -8,7 +8,7 @@ from torchvision import transforms, models
 from torch.utils.data import DataLoader
 from PIL import Image
 from train_engine import train_model_coteaching, train_model_mentor, train_model_coteaching_plus, train_model, \
-train_model_transition, train_model_SAM, train_model_AUM
+train_model_transition, train_model_SAM, train_model_AUM, train_model_LW
 import utils.customizedYaml as customizedYaml
 
 '''
@@ -298,6 +298,14 @@ if __name__ == '__main__':
                                                    effective_phase=effective_phase)
             save_dir = f'./log_dir/{save_path}_AUM.pth'
             new_records.save_aum_ranking(save_dir)
+        elif args['task'] == 'LW':
+            add_loader, _ = load_data(phase, args['target'], valid_test_transforms,
+                                                                  args['batch_size'], args['workers'],
+                                                                  False, base_img_path, shuffle=False)
+            model, save_path = train_model_LW(model=model, optimizer=optimizer, scheduler=scheduler, criterion=determine_criterion(args['criterion']),
+                                                   num_epochs=args['epochs'], dataloaders=dataloaders,
+                                                   dataset_sizes=dataset_sizes, device=device, scaler=model_scaler,
+                                                   effective_phase=effective_phase, add_loader=add_loader)
         else:
             raise Exception(f'Task not supported.')
         # Build model save path
