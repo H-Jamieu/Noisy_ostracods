@@ -236,6 +236,23 @@ class EfficientAUMCalculator:
 #     loss = torch.nn.functional.nll_loss(log_modified_outputs, t)
 #     return loss
 
+class Loss_Recorder:
+    '''
+    Record the latest loss for each image
+    '''
+    def __init__(self, num_samples, device):
+        self.loss_values = torch.zeros(num_samples, dtype=torch.float32, device=device)
+        self.device = device
+    
+    def update(self, loss, sample_ids):
+        with torch.no_grad():
+            sample_ids = sample_ids.to(self.device)
+            self.loss_values.index_copy_(0, sample_ids, loss)
+
+    def get_loss_by_id(self, sample_ids):
+        with torch.no_grad():
+            return self.loss_values[sample_ids].cpu().numpy()
+    
 
 def train_model_coteaching(model, co_model, optimizer, co_optimizer, scheduler, co_scheduler, num_epochs, dataloaders, rate_schedule,
                            dataset_sizes, device, scaler=None, effective_phase=['train', 'val']):
