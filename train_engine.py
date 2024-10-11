@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import gc
 from collections import deque
+import higher
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -21,6 +22,46 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].flatten().sum(dtype=torch.float32)
             res.append(correct_k)
         return res
+
+class base_meta_network(torch.nn.Module):
+    """
+    A base metanet for margin genration. The margin is class depedent
+    Input: predict class index
+    Output: margin for each class
+    Source: https://github.com/jiangwenj02/dynamic_loss/blob/0863227d9b366e1979a65f1e08966484250f6e0e/mmcls/models/meta_net/dynamic_loss.py
+    """
+
+    def __init__(self, num_classes, h_dim=256):
+        super(base_meta_network, self).__init__()
+        self.num_classes = num_classes
+        self.h_dim = h_dim
+        self._init_layers()
+        self._init_weights()
+    
+    def _init_layers(self):
+        self.cls_feature_emb = torch.nn.Parameter(torch.randn(1, self.h_dim))
+
+        self.margin_generator = torch.nn.Sequential(
+                                    torch.nn.Linear(self.h_dim, self.h_dim),
+                                    torch.nn.ReLU(),
+                                    torch.nn.Linear(self.h_dim, self.h_dim),
+                                    torch.nn.ReLU(),
+                                    torch.nn.Linear(self.h_dim, self.num_classes, bias=True) 
+                                )
+        
+    def _init_weights(self):
+        torch.nn.init.xavier_uniform_(self.cls_feature_emb)
+        torch.nn.init.xavier_normal_(self.margin_generator[0].weight)
+        torch.nn.init.xavier_normal_(self.margin_generator[2].weight)
+        torch.nn.init.xavier_normal_(self.margin_generator[4].weight)
+        self.margin_generator[0].bias.data.zero_()
+        self.margin_generator[2].bias.data.zero_()
+        # initialize the bias to 1 for preventing the meta train invalid
+        torch.nn.init.constant_(self.margin_generator[4].bias, 1)
+
+    def forward(self):
+        margin = self.margin_generator(self.cls_feature_emb)
+        return margin
 
     
 def save_catached_tensor(catched_idx, save_path):
@@ -985,3 +1026,158 @@ def train_model_LW(model, criterion, optimizer, scheduler, num_epochs, dataloade
 
     model_save_path = str(int(since)) + '_' + '{:4f}'.format(best_acc)
     return model, model_save_path
+
+def init_meta_net(dataloaders, device):
+    """
+    Initialize the meta-net for meta-learning
+    """
+    meta_model = base_meta_network(dataloaders['train'].dataset.__classes__()).to(device)
+    meta_optimizer = torch.optim.Adam(meta_model.parameters(), lr=0.001)
+    meta_scheduler = torch.optim.lr_scheduler.StepLR(meta_optimizer, step_size=7, gamma=0.1)
+    return meta_model, meta_optimizer, meta_scheduler
+
+def train_model_margin(model, criterion, optimizer, scheduler, num_epochs, dataloaders, dataset_sizes, device, scaler=None,
+                effective_phase=['train', 'val'], meta=True):
+    """
+    Training the meta-learning model with margin loss
+    """
+    since = time.time()
+    best_acc = 0
+    warmup_epochs = 5
+    # init meta-net
+    meta_model, meta_optimizer, meta_scheduler = init_meta_net(dataloaders, device)
+    batch_size = dataloaders['train'].batch_size
+    # scaler = torch.cuda.amp.GradScaler()
+    for epoch in range(1, num_epochs + 1):
+        print('Epoch {}/{}'.format(epoch, num_epochs))
+        print('-' * 10)
+        # Each epoch has a training and validation phase
+        for phase in effective_phase:
+            if phase == 'train':
+                model.train()  # Set model to training mode
+            else:
+                model.eval()  # Set model to evaluate mode
+            # meta learning
+            if meta and phase == 'train' and epoch > warmup_epochs:
+                meta_model.train()
+                print('Meta-learning')
+                for inputs, labels, _ in dataloaders['meta']:
+                    # First step
+                    with higher.innerloop_ctx(model, optimizer) as (fmodel, diffopt):
+                        model.train()
+                        inputs = inputs.to(device)
+                        labels = labels.to(device)
+                        optimizer.zero_grad()
+                        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
+                            outputs = fmodel(inputs)
+                            margin = meta_model()
+                            margin = margin.repeat(inputs.size(0), 1)
+                            first_loss = criterion(outputs + margin, labels)
+                        if scaler is not None:
+                            scaler.scale(first_loss).backward()
+                            scaler.step(diffopt)
+                            scaler.update()
+                        else:
+                            #print('First backward')
+                            first_loss.backward(retain_graph=True)
+                            diffopt.step(first_loss)
+                        #del inputs, labels, outputs, first_loss
+                        # clear cuda cache
+                        #torch.cuda.empty_cache()
+                    
+                    # Second step
+                    #for inputs, labels, _ in dataloaders['meta']:
+                        #print('Second step')
+                            # inputs = inputs.to(device)
+                            # labels = labels.to(device)
+                        meta_optimizer.zero_grad()
+                        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
+                            model.eval()
+                            #print('Second forward')
+                            outputs2 = fmodel(inputs)
+                            second_loss = criterion(outputs2, labels)
+                    
+                    # Update meta model
+                        
+                        if scaler is not None:
+                            scaler.scale(second_loss).backward()
+                            scaler.step(meta_optimizer)
+                            scaler.update()
+                        else:
+                            #print('Second backward') # Just for tracking the process
+                            second_loss.backward()
+                            meta_optimizer.step()
+                            meta_scheduler.step()
+                        #del inputs, labels, outputs, second_loss
+                        # clear cuda cache
+                        #torch.cuda.empty_cache()
+
+            running_loss = 0.0
+            running_acc1 = 0.0
+            running_acc5 = 0.0
+
+            # Iterate over data.
+            
+            for inputs, labels, _ in tqdm(dataloaders[phase]):
+                with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+                    # zero the parameter gradients
+                    optimizer.zero_grad()
+
+                    # forward
+                    # track history if only in train
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(inputs)
+                        if meta and phase == 'train' and epoch > warmup_epochs:
+                            
+                            margin = meta_model()
+                            margin = margin.repeat(inputs.size(0), 1)
+                            
+                            loss = criterion(outputs + margin, labels)
+                        else:
+                            loss = criterion(outputs, labels)
+
+                        # backward + optimize only if in training phase
+                        if phase == 'train':
+                            if scaler is not None:
+                                # loss.backward()
+                                scaler.scale(loss).backward()
+                                # optimizer.step()
+                                scaler.step(optimizer)
+                                scaler.update()
+                            else:
+                                loss.backward()
+                                optimizer.step()
+                _, preds = torch.max(outputs, 1)
+                # statistics
+                running_loss += loss.item() * inputs.size(0)
+                # should be changed to offical accuracy code
+                acc1, acc5 = accuracy(outputs, labels, topk=(1, 5))
+                running_acc1 += acc1.item()
+                running_acc5 += acc5.item()
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_acc1 / dataset_sizes[phase]
+            epoch_acc5 = running_acc5 / dataset_sizes[phase]
+
+            print('{} Loss: {:.4f} Acc top 1: {:.4f} Acc top 5: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc, epoch_acc5))
+
+            # deep copy the model
+            if phase == 'train':
+                scheduler.step()
+            else:
+                if (epoch+1)//10 == 0:
+                    model_save_path = str(int(since)) + '_' + f'epoch_{epoch+1}'
+                    if epoch <= 40:
+                        torch.save(model.state_dict(), model_save_path)
+                    elif (epoch+1)//40 == 0:
+                        torch.save(model.state_dict(), model_save_path)
+            print('{} Loss: {:.4f} Acc top 1: {:.4f} Acc top 5: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc, epoch_acc5))
+            # clear cuda cache
+    
+    model_save_path = str(int(since)) + '_' + '{:4f}'.format(best_acc)
+    return model, model_save_path
+    

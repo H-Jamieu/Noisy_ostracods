@@ -129,5 +129,5 @@ def evaluate_model(config_path, batch_size=32, output=False, task='classificatio
 if __name__ == '__main__':
     config_path = 'config_evaluation.yaml'
     data_path = './datasets'
-    metrics = evaluate_model(config_path, 128, True, 'cincer')
+    metrics = evaluate_model(config_path, 128, True, 'classification')
     print(f'{metrics[0]} {metrics[1]} {metrics[2]} {metrics[3]}')

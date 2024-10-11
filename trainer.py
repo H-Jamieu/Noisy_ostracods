@@ -8,7 +8,7 @@ from torchvision import transforms, models
 from torch.utils.data import DataLoader
 from PIL import Image
 from train_engine import train_model_coteaching, train_model_mentor, train_model_coteaching_plus, train_model, \
-train_model_transition, train_model_SAM, train_model_AUM, train_model_LW
+train_model_transition, train_model_SAM, train_model_AUM, train_model_LW, train_model_margin
 import utils.customizedYaml as customizedYaml
 
 '''
@@ -306,6 +306,16 @@ if __name__ == '__main__':
                                                    num_epochs=args['epochs'], dataloaders=dataloaders,
                                                    dataset_sizes=dataset_sizes, device=device, scaler=model_scaler,
                                                    effective_phase=effective_phase, add_loader=add_loader)
+        elif args['task'] == 'margin':
+            data_path = './datasets/ostracods_genus_clean_val.csv'
+            data_meta = CustomImageDataset(data_path, base_img_path, valid_test_transforms)
+            meta_loader = DataLoader(data_meta, batch_size=args['batch_size'], num_workers=8, 
+                                     shuffle=False, pin_memory=True, timeout=120)
+            dataloaders['meta'] = meta_loader
+            model, save_path = train_model_margin(model=model, optimizer=optimizer, scheduler=scheduler, criterion=determine_criterion(args['criterion']),
+                                                   num_epochs=args['epochs'], dataloaders=dataloaders,
+                                                   dataset_sizes=dataset_sizes, device=device, scaler=model_scaler,
+                                                   effective_phase=effective_phase, meta=True)
         else:
             raise Exception(f'Task not supported.')
         # Build model save path
