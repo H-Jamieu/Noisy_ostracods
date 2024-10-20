@@ -1,7 +1,7 @@
 # Noisy_ostracods
  The officical implementation of collected methods in the Noisy Ostracods dataset. We are now refactoring the code to make it easier to use. Here is queue of works:
 
- 1. Implement Dynamic Loss for Robust Learning (Jiang et al., 2023) which desigened specifically for unbalanced Label Noise Learning.
+ 1. Implement Dynamic Loss for Robust Learning (Jiang et al., 2023) which desigened specifically for unbalanced Label Noise Learning. (Done)
  2. Integrating Dividemix, SDN and PLM into out trainer->train_engine structure. However, all mthdods included subseting the dataset during train time, a seprate engine will be developed.
  3. Implement a unifed calling interface for both robust training and label correction methods.
  4. Write documentations.
