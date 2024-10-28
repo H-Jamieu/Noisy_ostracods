@@ -202,15 +202,21 @@ class loss_transition_matrix(torch.nn.Module):
         #     # in case the last batch is smaller than the transition matrix
         #     transition_matrix = transition_matrix[0].repeat(len(y), 1, 1)
         # create a diginal matrix of size transition_matrix
-        dig_matrix = self.transition_matrix #torch.eye(self.transition_matrix.size(0)).cuda()
+        # casting inputs to fp32
 
-        batch_probs = torch.nn.functional.softmax(y, dim=1)
-        #batch_probs = batch_probs.unsqueeze(-1)
-        #adjusted_probs = torch.matmul(batch_probs, transition_matrix)
-        adjusted_probs = torch.matmul(batch_probs, dig_matrix)
-        #adjusted_probs = adjusted_probs.squeeze(-1)
-        log_modified_outputs = torch.log(adjusted_probs)
-        loss = torch.nn.functional.nll_loss(log_modified_outputs, t)
+        dig_matrix = self.transition_matrix #torch.eye(self.transition_matrix.size(0)).cuda() #
+
+        with torch.cuda.amp.autocast(enabled=False):
+            y_fp32 = y.float()
+            transition_matrix_fp32 = dig_matrix
+            
+            batch_probs = torch.nn.functional.softmax(y_fp32, dim=1)
+            adjusted_probs = torch.matmul(batch_probs, transition_matrix_fp32)
+            log_modified_outputs = torch.log(adjusted_probs + 1e-12)
+            loss = torch.nn.functional.nll_loss(log_modified_outputs, t)
+            
+            # Cast back to original dtype
+            loss = loss.to(y.dtype)
         return loss
 
 class EfficientAUMCalculator:
@@ -657,6 +663,8 @@ def train_model_transition(model, optimizer, scheduler, num_epochs, dataloaders,
     # scaler = torch.cuda.amp.GradScaler()
     #noise_traisition_matrix = transition_matrix.unsqueeze(0).repeat(dataloaders['train'].batch_size, 1, 1)
     loss_fn = loss_transition_matrix(transition_matrix)#torch.nn.CrossEntropyLoss() #loss_transition_matrix(transition_matrix)# #
+    ce_loss_fn = torch.nn.CrossEntropyLoss()
+    warm_up = 5
     for epoch in range(1, num_epochs + 1):
         print('Epoch {}/{}'.format(epoch, num_epochs))
         print('-' * 10)
@@ -686,13 +694,14 @@ def train_model_transition(model, optimizer, scheduler, num_epochs, dataloaders,
                         # just for testing
                         # out_prob = torch.nn.functional.softmax(outputs, dim=1)
                         # adjusted_outputs = torch.matmul(out_prob, transition_matrix)
+                        ce_loss = ce_loss_fn(outputs, labels)
                         loss = loss_fn(outputs, labels)
-
+                        total_loss = max((warm_up-epoch)/warm_up, 0)*ce_loss + min(1,epoch/warm_up)*loss
                         # backward + optimize only if in training phase
                         if phase == 'train':
                             if scaler is not None:
                                 # loss.backward()
-                                scaler.scale(loss).backward()
+                                scaler.scale(total_loss).backward()
                                 # optimizer.step()
                                 scaler.step(optimizer)
                                 scaler.update()
@@ -701,7 +710,7 @@ def train_model_transition(model, optimizer, scheduler, num_epochs, dataloaders,
                                 optimizer.step()
                 _, preds = torch.max(outputs, 1)
                 # statistics
-                running_loss += loss.item() * inputs.size(0)
+                running_loss += total_loss.item() * inputs.size(0)
                 # should be changed to offical accuracy code
                 acc1, acc5 = accuracy(outputs, labels, topk=(1, 5))
                 running_acc1 += acc1.item()

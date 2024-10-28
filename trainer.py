@@ -5,6 +5,7 @@ import time
 import numpy as np
 from torch.utils.data import Dataset
 from torchvision import transforms, models
+from torchvision.transforms import v2
 from torch.utils.data import DataLoader
 from PIL import Image
 from train_engine import train_model_coteaching, train_model_mentor, train_model_coteaching_plus, train_model, \
@@ -81,7 +82,7 @@ def load_data(phase, target, d_transfroms, batch_size=16, n_workers=0, cache=Fal
     return data_loader, data_size
 
 
-def define_transforms(img_sz):
+def define_transforms(img_sz, cut_mix = False):
     image_w = imgae_h = img_sz
 
     data_transforms = transforms.Compose([transforms.Resize([image_w, imgae_h]),
@@ -111,7 +112,7 @@ def define_transforms(img_sz):
 Include the contents of entrance.py
 '''
 
-def preprocess_transition_matrix(trans_mat_path, device, model_scaler=None):
+def preprocess_transition_matrix(trans_mat_path, device):
     
     trans_mat = np.load(trans_mat_path)
     # fill na with 52, the number of clasees to impose large penalty
@@ -120,11 +121,8 @@ def preprocess_transition_matrix(trans_mat_path, device, model_scaler=None):
     for i in range(len(trans_mat)):
         if trans_mat[i][i] == 0:
             trans_mat[i][i] = 1
-    # transfer to tensor
-    if model_scaler is not None:
-        trans_mat = torch.tensor(trans_mat, dtype=torch.float16).to(device)
-    else:
-        trans_mat = torch.tensor(trans_mat, dtype=torch.float32).to(device)
+    # transfer to tensor, force to be float32
+    trans_mat = torch.tensor(trans_mat, dtype=torch.float32).to(device)
     return trans_mat
 
 def init_weights(layer):
@@ -280,7 +278,7 @@ if __name__ == '__main__':
                                                    effective_phase=effective_phase)
         elif args['task'] == 'transition_matrix':
             cm_path = './analyses/cm_combined.npy'
-            trans_mat = preprocess_transition_matrix(cm_path, device, model_scaler)
+            trans_mat = preprocess_transition_matrix(cm_path, device)
             model, save_path = train_model_transition(model=model, optimizer=optimizer, scheduler=scheduler, transition_matrix=trans_mat,
                                                    num_epochs=args['epochs'], dataloaders=dataloaders,
                                                    dataset_sizes=dataset_sizes, device=device, scaler=model_scaler,
