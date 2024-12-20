@@ -120,6 +120,34 @@ def get_image_embedding_mae(model, device, input_loader, scaler=True):
                 del embedding, inputs
     return image_embedding
 
+def get_image_embedding_dino(model, device, input_loader, scaler=True):
+    image_embedding = torch.tensor(()).to(device)
+    model.eval()
+    model.to(device)
+    iter_counter = 0
+    offloaded_embedding = []
+    with torch.no_grad():
+        with torch.autocast(device_type = 'cuda', dtype=torch.float16, enabled=scaler is not None):
+            for inputs in tqdm(input_loader):
+                inputs = inputs.to(device)
+                # don't need mask and normalization
+                embedding = model(inputs)
+                # embedding is shape of (batch_size, 1536), just staking is fine
+                image_embedding = torch.cat((image_embedding, embedding), 0)
+                iter_counter += inputs.size(0)
+                del embedding, inputs
+                
+                if iter_counter >= 24000:
+                    offloaded_embedding.append(image_embedding.cpu())
+                    image_embedding = torch.tensor(()).to(device)
+                    torch.cuda.empty_cache()
+                    iter_counter = 0
+    # merge the offloaded embedding
+    if len(offloaded_embedding) > 0:
+        offloaded_embedding.append(image_embedding.cpu())
+        image_embedding = torch.cat(offloaded_embedding, 0)
+    return image_embedding
+
 def save_to_csv(embeddings, file_name, image_paths):
     """
     Save the embeddings to a csv file:
@@ -151,12 +179,14 @@ def ectract_clip_embeddings():
     save_to_csv(image_embedding, "image_embeddings.csv", image_list)
 
 def extract_mae_embeddings():
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
-    chkpt_dir = '/mnt/d/working_dir/mae/output_dir/mae_visualize_vit_large.pth' # customize this to your model checkpoint
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    #chkpt_dir = '/mnt/d/working_dir/mae/output_dir/mae_visualize_vit_large.pth' # customize this to your model checkpoint
     #chkpt_dir = 'd:/working_dir/mae/output_dir/mae_vit_large_patch16_1715962570.925112.pth'
+    chkpt_dir = '/mnt/c/users/windowsshit/working_dir/mae/output_dir/mae_vit_large_patch16_1729858529.0406795.pth'
     pt = torch.load(chkpt_dir, map_location=device)
+    print(pt.keys())
     model = models_mae.__dict__['mae_vit_large_patch16'](norm_pix_loss=True) # customize this to your model
-    model.load_state_dict(pt['model'])
+    model.load_state_dict(pt)
     img_dir = "/mnt/x/class_images" # customize this to your image directory
     #img_dir = "d:/ostracods_data/class_images"
     image_list = list_all_images(img_dir)
@@ -175,8 +205,24 @@ def extract_mae_embeddings():
     image_embedding = image_embedding.cpu().numpy()
     # release cuda memory
     torch.cuda.empty_cache()
-    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_mae_raw.csv", image_list)
+    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_mae_full_pretrain.csv", image_list)
+
+def extract_DINO_embeddings():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dino_v2_model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14')
+    dino_v2_model.eval()
+    dino_v2_model.to(device)
+    img_dir = "/mnt/x/class_images"
+    image_list = list_all_images(img_dir)
+    dataset = CompactDataset(image_list, transform=None, image_w=224, image_h=224)
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=4)
+    image_embedding = get_image_embedding_dino(dino_v2_model, device, dataloader)
+    del dino_v2_model
+    image_embedding = image_embedding.cpu().numpy()
+    torch.cuda.empty_cache()
+    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_DINOv2_g14_full.csv", image_list)
 
 if __name__ == "__main__":
     #ectract_clip_embeddings()
-    extract_mae_embeddings()
+    #extract_mae_embeddings()
+    extract_DINO_embeddings()

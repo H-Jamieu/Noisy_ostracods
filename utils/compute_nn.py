@@ -89,9 +89,9 @@ def compute_nn(embedding_file, output_file, base_str,  device):
     print(f"Saved the nearest neighbors in {time()-t3} seconds")
 
 if __name__ == "__main__":
-    embedding_file = "../datasets/embeddings/image_embeddings_mae_raw.csv"
-    output_file = "../datasets/embeddings/mae_raw_nn_31.csv"
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    embedding_file = "../datasets/embeddings/image_embeddings_DINOv2_g14_full.csv"
+    output_file = "../datasets/embeddings/dinov2_g14_full_nn_31.csv"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     #base_str = "/mnt/c/Users/hjmfun/working_dir/ostracods_data/class_images/"
     base_str = "/mnt/x/class_images/"
     compute_nn(embedding_file, output_file, base_str,device)
