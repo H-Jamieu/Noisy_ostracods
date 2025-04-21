@@ -92,7 +92,6 @@ def get_image_embedding(model, device, input_loader, scaler=True):
     model_for_embedding.eval()
     model_for_embedding.to(device)
     image_embedding = torch.tensor(()).to(device)
-    model.eval()
     with torch.no_grad():
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
             for inputs in tqdm(input_loader):
@@ -182,12 +181,20 @@ def extract_mae_embeddings():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     #chkpt_dir = '/mnt/d/working_dir/mae/output_dir/mae_visualize_vit_large.pth' # customize this to your model checkpoint
     #chkpt_dir = 'd:/working_dir/mae/output_dir/mae_vit_large_patch16_1715962570.925112.pth'
-    chkpt_dir = '/mnt/c/users/windowsshit/working_dir/mae/output_dir/mae_vit_large_patch16_1729858529.0406795.pth'
+    chkpt_dir = '/mnt/c/users/windowsshit/working_dir/mae/output_dir/mae_vit_huge_patch14_1744809191.3047493.pth'
+    img_dir = "/mnt/e/play_ground/training_data"
     pt = torch.load(chkpt_dir, map_location=device)
-    print(pt.keys())
-    model = models_mae.__dict__['mae_vit_large_patch16'](norm_pix_loss=True) # customize this to your model
+    #print(pt.keys())
+    default_weight_keys = ['mae_vit_large_path16', 'mae_vit_base_patch16', 'mae_vit_huge_patch14']
+    # find the keys in the chkpt_path
+    the_key = 'mae_vit_large_path16'
+    for k in default_weight_keys:
+        if k in chkpt_dir:
+            the_key = k
+            break
+    model = models_mae.__dict__[the_key](norm_pix_loss=True) # customize this to your model
     model.load_state_dict(pt)
-    img_dir = "/mnt/x/class_images" # customize this to your image directory
+    # customize this to your image directory
     #img_dir = "d:/ostracods_data/class_images"
     image_list = list_all_images(img_dir)
     # (0.25425115, 0.26252866, 0.26527297, 0.236864, 0.24605624, 0.24846438)
@@ -205,22 +212,22 @@ def extract_mae_embeddings():
     image_embedding = image_embedding.cpu().numpy()
     # release cuda memory
     torch.cuda.empty_cache()
-    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_mae_full_pretrain.csv", image_list)
+    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_470k_224_mae_full_pretrain.csv", image_list)
 
 def extract_DINO_embeddings():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dino_v2_model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14')
     dino_v2_model.eval()
     dino_v2_model.to(device)
-    img_dir = "/mnt/x/class_images"
+    img_dir = "/mnt/e/play_ground/training_data"
     image_list = list_all_images(img_dir)
     dataset = CompactDataset(image_list, transform=None, image_w=224, image_h=224)
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=48, shuffle=False, num_workers=16)
     image_embedding = get_image_embedding_dino(dino_v2_model, device, dataloader)
     del dino_v2_model
     image_embedding = image_embedding.cpu().numpy()
     torch.cuda.empty_cache()
-    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_DINOv2_g14_full.csv", image_list)
+    save_to_csv(image_embedding, "../datasets/embeddings/image_embeddings_470k_224_DINOv2_g14_full.csv", image_list)
 
 if __name__ == "__main__":
     #ectract_clip_embeddings()
