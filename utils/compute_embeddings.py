@@ -104,6 +104,9 @@ def get_image_embedding_mae(model, device, input_loader, scaler=True):
     image_embedding = torch.tensor(()).to(device)
     model.eval()
     model.to(device)
+    iter_counter = 0
+    offloaded_embedding = []
+    
     with torch.no_grad():
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=scaler is not None):
             for inputs in tqdm(input_loader):
@@ -116,7 +119,20 @@ def get_image_embedding_mae(model, device, input_loader, scaler=True):
                 embedding = embedding.mean(dim=1)
                 embedding = embedding.view(embedding.size(0), -1)
                 image_embedding = torch.cat((image_embedding, embedding), 0)
+                iter_counter += inputs.size(0)
                 del embedding, inputs
+                
+                # Offload to CPU when reaching threshold
+                if iter_counter >= 24000:
+                    offloaded_embedding.append(image_embedding.cpu())
+                    image_embedding = torch.tensor(()).to(device)
+                    torch.cuda.empty_cache()
+                    iter_counter = 0
+    
+    # merge the offloaded embedding
+    if len(offloaded_embedding) > 0:
+        offloaded_embedding.append(image_embedding.cpu())
+        image_embedding = torch.cat(offloaded_embedding, 0)
     return image_embedding
 
 def get_image_embedding_dino(model, device, input_loader, scaler=True):
@@ -231,5 +247,5 @@ def extract_DINO_embeddings():
 
 if __name__ == "__main__":
     #ectract_clip_embeddings()
-    #extract_mae_embeddings()
-    extract_DINO_embeddings()
+    extract_mae_embeddings()
+    #extract_DINO_embeddings()
