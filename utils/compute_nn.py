@@ -63,6 +63,8 @@ def compute_nn(embedding_file, output_file, base_str,  device):
     print(f"Read the embeddings in {time()-t0} seconds")
     # get the embeddings, the 2nd to 513rd columns
     embedding_array = embeddings.iloc[:, 1:].values
+    # convert the embedding array to float32
+    embedding_array = embedding_array.astype(np.float32)
     # compute the distance matrix
     t1 = time()
     knn = compute_distance_matrix(embedding_array, device)
@@ -74,6 +76,9 @@ def compute_nn(embedding_file, output_file, base_str,  device):
     # knn = compute_knn(distance_matrix)
     #print(f"Computed the nearest neighbors in {time()-t2} seconds")
     image_names = embeddings[0].values
+    print(type(image_names[0]))
+    # convert images_names to list of strings
+    image_names = [str(name) for name in image_names]
     image_names = [name.replace(base_str, "") for name in image_names]
     # save the nearest neighbors
     t3 = time()
@@ -89,9 +94,9 @@ def compute_nn(embedding_file, output_file, base_str,  device):
     print(f"Saved the nearest neighbors in {time()-t3} seconds")
 
 if __name__ == "__main__":
-    embedding_file = "../datasets/embeddings/image_embeddings_DINOv2_g14_full.csv"
-    output_file = "../datasets/embeddings/dinov2_g14_full_nn_31.csv"
+    embedding_file = "../datasets/embeddings/image_embeddings_siglip2_so400m_p14_384.csv"
+    output_file = "../datasets/embeddings/sigclip_nn_31.csv"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     #base_str = "/mnt/c/Users/hjmfun/working_dir/ostracods_data/class_images/"
-    base_str = "/mnt/x/class_images/"
+    base_str = "e:/ostracods_id/class_images/"
     compute_nn(embedding_file, output_file, base_str,device)

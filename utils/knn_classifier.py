@@ -32,7 +32,13 @@ def preprocess_knn_file(knn_file):
     return knn_file, clesses
 
 if __name__ == '__main__':
-    knn_file = pd.read_csv('vit_l_14_nn_31.csv', header=None)
+    knn_file_name = '../datasets/embeddings/sigclip_nn_31.csv'
+    if not os.path.exists(knn_file_name):
+        print(f'File {knn_file_name} not found. Please run the script to generate it.')
+        exit(1)
+    knn_file = pd.read_csv(knn_file_name, header=None)
+    # drop 'nan'
+    knn_file = knn_file[knn_file[0] != 'nan']
     files = knn_file[0].values
     knn_file, classes = preprocess_knn_file(knn_file)
     # convert the row 1 after of knn_file to numpy array
@@ -46,7 +52,7 @@ if __name__ == '__main__':
         txt_pred = [classes[i] for i in y_pred]
         all_pred.append(txt_pred)
     # save the predictions
-    with open('vit_l_14_nn_31_pred.csv', 'w') as f:
+    with open(f'{knn_file_name}_pred.csv', 'w') as f:
         for i in range(len(files)):
             line = files[i]
             for pred in all_pred:
